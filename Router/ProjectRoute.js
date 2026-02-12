@@ -53,7 +53,7 @@ router.patch("/update/:id",authMiddleware,async (req,res)=>{
         data.projects[id].description = description || data.projects[id].desc;
     }
     await write(data);
-    res.status(200).json({message:"successfully completed"});
+    res.status(200).json({message:"successfully completed"})
 })
 
 router.delete("/delete/:id",authMiddleware,async(req,res)=>{
