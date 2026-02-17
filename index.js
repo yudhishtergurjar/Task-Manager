@@ -9,13 +9,17 @@ import express from "express";
 import userRoute from "./Router/userRoute.js";
 import projectRoute from "./Router/ProjectRoute.js";
 import taskRoute from "./Router/taskRoute.js";
+import connectDB from "./Database/db.js";
+import cookieParser from "cookie-parser";
 
 
 
 const app = express();
 app.use(express.json());
+app.use(cookieParser());
 
- 
+connectDB();
+
 app.use('/auth',userRoute);
 app.use('/projects',projectRoute);
 app.use('/tasks',taskRoute);

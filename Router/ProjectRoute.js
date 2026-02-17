@@ -1,106 +1,101 @@
 import express from "express";
-import bcrypt from "bcrypt";
 import "dotenv/config";
-import {generateAccessToken, generateRefreshToken, verifyAccessToken, verifyRefreshToken} from "../services/token.js";
-import {register,logout, changeRefreshToken,read,write, addProject } from "../services/dbOperation.js";
-import path from "path";
 import { schemaMiddleware, authMiddleware } from "../Middleware/schemaMiddleware.js"; 
 import { createProjectSchema, userLoginSchema } from "../Schema/schema.js";
-const dbPath = path.resolve("../Database/db.json");
-
+import User from "../Database/user.model.js";
+import Project from "../Database/project.model.js";
 const router = express.Router();
 
 router.post('/add',authMiddleware, schemaMiddleware(createProjectSchema),async (req,res)=>{
-    const {title,description}= req.body;
-    const decoded = verifyAccessToken(req.headers.authorization.split(" ")[1]);
-    const email = decoded.email;
-    const obj = {
-        title:title,
-        description:description,
-        parent:email,
-        task:[],
-    }
-    await addProject(obj);
-    res.status(200).json({message:"added successfully"});
+    try{
+        const {title,description}= req.body;
+        const email = req.user.email;
+        const user= await User.findOne({email});
+        const newProject = new Project({
+            title,
+            description,
+            owner:user._id
+        })
+        const savedProject = await newProject.save();
+        return res.status(200).json({message:"added successfully",savedProject});
+    }catch(err){
+        return res.status(400).json({message:"error occured",err});
+    } 
 })
 
 router.get('/read/:id',authMiddleware,async (req,res)=>{
-    const id = req.params.id;
-    const data = await read();
-    const decoded = verifyAccessToken(req.headers.authorization.split(" ")[1]);
-    const email = decoded.email;  
+    try{
+        const id = req.params.id;
+        const email = req.user.email;  
+        const user = await User.findOne({email});
+        const existingProj = await Project.findOne({_id:id});
+        if(!existingProj) return res.status(400).json({message:"project dont exists"});
 
-    if(Object.hasOwn(data.projects,id)){
-        if(data.projects[id].parent != email) res.status(400).json({message:"invalid user"});
-        const projectData = data.projects[id];
-        res.status(200).json({message:"read success",projectData});
-    }else{
-        res.status(400).json({message:"invalid id"});
+        if(!existingProj.owner.equals(user._id)) return res.status(400).json({message:"invalid user"});
+        return res.status(200).json({message:"successfully read",existingProj});
+     
+    }catch(err){
+        return res.status(400).json({message:"error occured while reading",err});
     }
 })
 
 router.patch("/update/:id",authMiddleware,async (req,res)=>{
-    const data = await read();
-    const id = req.params.id;
-    const {title, description} = req.body;
-    const decoded = verifyAccessToken(req.headers.authorization.split(" ")[1]);
-    const email = decoded.email;  
-    
-    if(Object.hasOwn(data.projects,id)){
-        if(data.projects[id].parent != email) res.status(400).json({message:"invalid user"});
-        data.projects[id].title = title || data.projects[id].title;
-        data.projects[id].description = description || data.projects[id].desc;
-    }
-    await write(data);
-    res.status(200).json({message:"successfully completed"})
+    try{
+        const {title,description} = req.body;
+        const id = req.params.id;
+        const email = req.user.email;  
+        const user = await User.findOne({email});
+        const existingProj = await Project.findOne({_id:id});
+        if(!existingProj) return res.status(400).json({message:"project dont exists"});
+
+        if(!existingProj.owner.equals(user._id)) return res.status(400).json({message:"invalid user"});
+
+        existingProj.title = title || existingProj.title;
+        existingProj.description =  description || existingProj.description;
+        const updatedProj = await existingProj.save();
+        return res.status(200).json({message:"successfully read",updatedProj}); 
+    }catch(err){
+        return res.status(400).json({message:"error occured while reading",err});
+    }    
 })
 
 router.delete("/delete/:id",authMiddleware,async(req,res)=>{
-    const data = await read();
-    const id = req.params.id;
-    const decoded = verifyAccessToken(req.headers.authorization.split(" ")[1]);
-    const email = decoded.email;  
-    let userId="";
-    if(Object.hasOwn(data.projects,id)){
-        if(data.projects[id].parent != email) res.status(400).json({message:"invalid user"});
-        userId = data.projects[id].parent;
-        delete data.projects[id]
+    try{
+        const id = req.params.id;
+        const email = req.user.email;  
+        const user = await User.findOne({email});
+        const existingProj = await Project.findOne({_id:id});
+        if(!existingProj) return res.status(400).json({message:"project dont exists"});
+        if(!existingProj.owner.equals(user._id)) return res.status(400).json({message:"invalid user"});
+        await existingProj.deleteOne();
+        return res.status(200).json({message:"project deleted successfully"});
+    }catch(err){
+        return res.status(400).json({message:"error occured"});
     }
-    if(userId){
-        data.users[userId].projects = data.users[userId].projects.filter(val => val != id);
-    }
-    await write(data);
-    res.status(200).json({message:"succesfuly write"});
 })
 
 router.get("/list",authMiddleware,async (req,res)=>{
-    const {page, limit, sort} = req.query;
-    const decoded = verifyAccessToken(req.headers.authorization.split(" ")[1]);
-    const email = decoded.email;
-    const data = await read();
-    const userProjectsIds = data.users[email]?.projects || [];
+    try{
+        const {page=1, limit=10} = req.query;
+        const email = req.user.email;
+        const user = await User.findOne({email});
+        const allProjects = await user.populate("projects");
 
-    let userProjects = userProjectsIds.map(id=>({
-        id,
-        ...data.projects[id]
-    }));
-    console.log(userProjects);
+        const pageNumber = parseInt(page);
+        const pageSize = parseInt(limit);
+        const skip = (pageNumber-1)*pageSize;
 
+        const paginatedProjects = allProjects.projects.slice(skip, skip+pageSize);
+        res.status(200).json({
+            total: allProjects.length,
+            page: pageNumber,
+            data: paginatedProjects
+        });
 
-    userProjects.sort((a, b)=>{
-        if(sort === "desc") return Number(b.id)-Number(a.id);
-        return Number(a.id) - Number(b.id);
-    });
-
-    const pageNumber = parseInt(page);
-    const pageSize = parseInt(limit);
-    const skip = (pageNumber-1)*pageSize;
-    const paginatedProjects = userProjects.slice(skip, skip+pageSize);
-    res.status(200).json({
-        total: userProjects.length,
-        page: pageNumber,
-        data: paginatedProjects
-    });
+    }catch(err){
+        console.log(err);
+        return res.status(400).json({message:"error occured while listing",err});
+    }
 });
 
 export default router;

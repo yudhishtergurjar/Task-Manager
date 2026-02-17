@@ -21,6 +21,7 @@ export const authMiddleware = (req,res,next)=>{
     try{
         const token = authHeader.split(' ')[1];
         const decode = jwt.verify(token,jwtSecret);
+        req.user=decode;
         next();
     }catch{
         res.status(400).json("invalid token");

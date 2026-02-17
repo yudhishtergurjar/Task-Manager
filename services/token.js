@@ -23,9 +23,9 @@ export function verifyAccessToken(token) {
 
 export function verifyRefreshToken(token){
     try{
-        jwt.verify(token,jwtRefreshSecret);
-        return true;
+        const decoded = jwt.verify(token,jwtRefreshSecret);
+        return decoded;
     }catch{
-        return false;
+        return null;
     }
 }
